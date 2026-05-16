@@ -94,7 +94,7 @@
 <script>
   // ===== CONFIG =====
   // Paste your Apps Script Web App URL here (ends in /exec)
-  const API_URL = 'PASTE_WEB_APP_URL_HERE';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbw0kQl0RYmT-YiRhLWUrFBUa8G6gbyQQq9LafVImfIjAxUjoMLMAqM3zWB_zEuT97o-/exec';
 
   // ===== STATE =====
   let data = null;
@@ -188,11 +188,20 @@
       </div>`;
   }
 
+  // Reformat MM/dd/yyyy month labels as "MMM yyyy" (e.g. "05/01/2025" → "May 2025")
+  function formatMonthLabel(label) {
+    const m = String(label).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return label;
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return monthNames[parseInt(m[1], 10) - 1] + ' ' + m[3];
+  }
+
   function renderWeekly() {
     $('#weeklyTable').innerHTML = trackerTable(data.weekly, 'Week');
   }
   function renderMonthly() {
-    $('#monthlyTable').innerHTML = trackerTable(data.monthly, 'Month');
+    const reformatted = (data.monthly || []).map(r => ({ ...r, label: formatMonthLabel(r.label) }));
+    $('#monthlyTable').innerHTML = trackerTable(reformatted, 'Month');
   }
 
   function trackerTable(rows, labelHeader) {

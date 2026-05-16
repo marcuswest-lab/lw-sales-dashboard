@@ -106,13 +106,20 @@ function readTracker(sh) {
   var lastRow = sh.getLastRow();
   if (lastRow < 2) return [];
   var data = sh.getRange(2, 1, lastRow - 1, 8).getValues();
+  var tz = 'America/Bogota';
   var rows = [];
   for (var i = 0; i < data.length; i++) {
     var r = data[i];
     if (!r[0]) continue;                    // no label → skip
     if (r[1] === '' || r[1] === null) continue; // future period → skip
+
+    // Label can be a Date (Weekly tab) or a string like "May 2026" (Monthly).
+    var label = (r[0] instanceof Date)
+      ? Utilities.formatDate(r[0], tz, 'MM/dd/yyyy')
+      : String(r[0]);
+
     rows.push({
-      label:       String(r[0]),
+      label:       label,
       callsBooked: r[1],
       liveCalls:   r[2],
       showRate:    r[3],
