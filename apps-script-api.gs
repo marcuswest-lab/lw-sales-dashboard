@@ -56,11 +56,84 @@ function buildPayload() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   return {
     asOf:    new Date().toISOString(),
-    daily:   readDaily(ss.getSheetByName('Daily Report')),
-    weekly:  readTracker(ss.getSheetByName('Weekly Tracker')),
-    monthly: readTracker(ss.getSheetByName('Monthly Tracker')),
-    reps:    readRepBreakdown(ss.getSheetByName('Rep Monthly Breakdown'))
+    dashboard: readDaily(ss.getSheetByName('Daily Report')),  // Yesterday/WTD/MTD KPIs
+    daily:     readDailyByDate(ss.getSheetByName('Dashboard'), 30), // 1 row per date, last 30 days
+    weekly:    readTracker(ss.getSheetByName('Weekly Tracker')),
+    monthly:   readTracker(ss.getSheetByName('Monthly Tracker')),
+    reps:      readRepBreakdown(ss.getSheetByName('Rep Monthly Breakdown'))
   };
+}
+
+/**
+ * Aggregates the Dashboard tab (one row per call) into one row per date.
+ * Returns last `limit` dates, newest first.
+ *
+ * Dashboard tab columns (row 4+):
+ *   A=Day name, B=Date, C=Name, D=Sales Rep, E=Outcome,
+ *   F=Recording, G=Objection, H=Notes, I=Revenue, J=Cash Collected
+ *
+ * We only return aggregates — names/recordings/notes never leave the sheet.
+ */
+function readDailyByDate(sh, limit) {
+  if (!sh) return [];
+  var lastRow = sh.getLastRow();
+  if (lastRow < 4) return [];
+
+  // Read B (Date), E (Outcome), I (Revenue), J (Cash) for all data rows.
+  var range = sh.getRange(4, 2, lastRow - 3, 9).getValues();
+  // range[i] indexes: 0=B(Date), 1=C(Name, skip), 2=D(Rep, skip), 3=E(Outcome),
+  //                   4=F, 5=G, 6=H, 7=I(Revenue), 8=J(Cash)
+
+  var tz = 'America/Bogota';
+  var byDate = {}; // key = "MM/dd/yyyy" → aggregate
+
+  for (var i = 0; i < range.length; i++) {
+    var d = range[i][0];
+    if (!(d instanceof Date)) continue;
+    var key = Utilities.formatDate(d, tz, 'MM/dd/yyyy');
+    var outcome = String(range[i][3] || '');
+    var revenue = Number(range[i][7]) || 0;
+    var cash = Number(range[i][8]) || 0;
+
+    if (!byDate[key]) {
+      byDate[key] = {
+        _epoch: d.getTime(),
+        label: key,
+        dayName: Utilities.formatDate(d, tz, 'EEE'),
+        callsBooked: 0,
+        apptBooked: 0,
+        liveCalls: 0,
+        offersMade: 0,
+        sales: 0,
+        cash: 0,
+        revenue: 0
+      };
+    }
+    var row = byDate[key];
+    row.callsBooked++;
+    if (outcome === 'Appointment Booked') row.apptBooked++;
+    if (outcome !== 'No Show' && outcome !== 'Appointment Booked') row.liveCalls++;
+    if (outcome === 'Sale' || outcome === 'Offer / Disqualified' || outcome === 'No Sale') row.offersMade++;
+    if (outcome === 'Sale') row.sales++;
+    row.cash += cash;
+    row.revenue += revenue;
+  }
+
+  // Convert to array, sort newest first, compute rates, slice to limit.
+  var arr = Object.keys(byDate).map(function(k) { return byDate[k]; });
+  arr.sort(function(a, b) { return b._epoch - a._epoch; });
+  if (limit && arr.length > limit) arr = arr.slice(0, limit);
+
+  for (var i = 0; i < arr.length; i++) {
+    var r = arr[i];
+    // Show Rate = liveCalls / (callsBooked - apptBooked) — matches sheet
+    var showDenom = r.callsBooked - r.apptBooked;
+    r.showRate = (showDenom > 0) ? r.liveCalls / showDenom : 0;
+    r.closeRate = (r.liveCalls > 0) ? r.sales / r.liveCalls : 0;
+    delete r._epoch;
+    delete r.apptBooked;
+  }
+  return arr;
 }
 
 /**
@@ -182,13 +255,23 @@ function readRepBreakdown(sh) {
     }
 
     // Build months array (col index 2+)
+    var tz = 'America/Bogota';
     var months = [];
     for (var c = 2; c < lastCol; c++) {
       var monthLabel = headers[c];
       if (!monthLabel) continue;
-      // Skip month if Calls Booked is blank/0 — future month
-      if (block[0][c] === '' || block[0][c] === null) continue;
-      var monthRow = { label: String(monthLabel) };
+
+      var callsBookedVal = block[0][c];
+      // Skip month if Calls Booked is blank or 0 — empty/future month
+      if (callsBookedVal === '' || callsBookedVal === null) continue;
+      if (Number(callsBookedVal) === 0) continue;
+
+      // Header cell may be a Date — format as "MMM yyyy"
+      var labelStr = (monthLabel instanceof Date)
+        ? Utilities.formatDate(monthLabel, tz, 'MMM yyyy')
+        : String(monthLabel);
+
+      var monthRow = { label: labelStr };
       for (var i = 0; i < metricKeys.length; i++) {
         monthRow[metricKeys[i]] = block[i][c];
       }

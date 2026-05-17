@@ -25,29 +25,32 @@
 </head>
 <body class="min-h-screen lw-text-olive">
 
-<!-- ====== HEADER ====== -->
-<header class="lw-bg-olive text-white px-4 py-4 sm:py-5 shadow-md">
-  <div class="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-    <div>
-      <h1 class="text-xl sm:text-2xl font-bold">LW Sales Dashboard</h1>
-      <p id="asOf" class="text-xs sm:text-sm opacity-75">Loading…</p>
+<!-- ====== STICKY TOP (header + tabs) ====== -->
+<div class="sticky top-0 z-20 shadow-md">
+<header class="lw-bg-olive text-white px-4 py-3 sm:py-4">
+  <div class="max-w-6xl mx-auto flex items-center justify-between gap-2">
+    <div class="min-w-0">
+      <h1 class="text-lg sm:text-2xl font-bold truncate">LW Sales Dashboard</h1>
+      <p id="asOf" class="text-[10px] sm:text-sm opacity-75 truncate">Loading…</p>
     </div>
-    <button id="refreshBtn" class="self-start sm:self-auto inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 active:bg-white/30 px-3 py-2 rounded text-sm transition">
+    <button id="refreshBtn" class="flex-shrink-0 inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 active:bg-white/30 px-3 py-2 rounded text-sm transition">
       <svg id="refreshIcon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 4v5h-5"/></svg>
-      Refresh
+      <span class="hidden sm:inline">Refresh</span>
     </button>
   </div>
 </header>
 
 <!-- ====== TABS ====== -->
-<nav class="sticky top-0 z-10 lw-bg-sand border-b lw-border-olive">
+<nav class="lw-bg-sand border-b lw-border-olive">
   <div class="max-w-6xl mx-auto flex overflow-x-auto scroll-x">
-    <button data-tab="daily"   class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Daily</button>
-    <button data-tab="weekly"  class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Weekly</button>
-    <button data-tab="monthly" class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Monthly</button>
-    <button data-tab="reps"    class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Reps</button>
+    <button data-tab="dashboard" class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Dashboard</button>
+    <button data-tab="daily"     class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Daily</button>
+    <button data-tab="weekly"    class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Weekly</button>
+    <button data-tab="monthly"   class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Monthly</button>
+    <button data-tab="reps"      class="tab-btn flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 border-transparent transition">Reps</button>
   </div>
 </nav>
+</div><!-- /sticky top -->
 
 <!-- ====== MAIN ====== -->
 <main class="max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
@@ -58,13 +61,19 @@
     <p class="mt-3 text-sm opacity-70">Fetching latest numbers…</p>
   </div>
 
-  <!-- Daily -->
-  <section id="tab-daily" class="hidden">
+  <!-- Dashboard (Yesterday / WTD / MTD KPIs) -->
+  <section id="tab-dashboard" class="hidden">
     <div class="grid gap-6">
       <div data-block="yesterday"></div>
       <div data-block="wtd"></div>
       <div data-block="mtd"></div>
     </div>
+  </section>
+
+  <!-- Daily (1 row per date, last 30 days) -->
+  <section id="tab-daily" class="hidden">
+    <h2 class="text-lg font-bold mb-3">Daily (Last 30 Days)</h2>
+    <div id="dailyTable" class="overflow-x-auto scroll-x rounded-lg shadow-sm bg-white"></div>
   </section>
 
   <!-- Weekly -->
@@ -98,7 +107,7 @@
 
   // ===== STATE =====
   let data = null;
-  let activeTab = 'daily';
+  let activeTab = 'dashboard';
   let activeRep = null;
 
   // ===== UTILS =====
@@ -142,12 +151,13 @@
     $('#status').innerHTML = loading
       ? `<svg class="spinner mx-auto h-8 w-8 lw-text-olive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" opacity="0.25"/><path d="M22 12a10 10 0 0 1-10 10"/></svg><p class="mt-3 text-sm opacity-70">${msg}</p>`
       : `<p class="text-red-700 font-medium">⚠️ ${msg}</p>`;
-    ['daily','weekly','monthly','reps'].forEach(t => $('#tab-' + t).classList.add('hidden'));
+    ['dashboard','daily','weekly','monthly','reps'].forEach(t => $('#tab-' + t).classList.add('hidden'));
   }
 
   // ===== RENDER =====
   function render() {
     $('#status').classList.add('hidden');
+    renderDashboard();
     renderDaily();
     renderWeekly();
     renderMonthly();
@@ -155,10 +165,10 @@
     showTab(activeTab);
   }
 
-  function renderDaily() {
+  function renderDashboard() {
     const labels = { yesterday: 'Yesterday', wtd: 'Week to Date', mtd: 'Month to Date' };
     ['yesterday','wtd','mtd'].forEach(key => {
-      const d = data.daily[key];
+      const d = data.dashboard[key];
       const el = $(`[data-block="${key}"]`);
       el.innerHTML = `
         <h2 class="text-lg font-bold mb-3">${labels[key]}</h2>
@@ -194,6 +204,42 @@
     if (!m) return label;
     const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return monthNames[parseInt(m[1], 10) - 1] + ' ' + m[3];
+  }
+
+  function renderDaily() {
+    // data.daily is an array of { label, dayName, callsBooked, liveCalls, offersMade, sales, showRate, closeRate, cash, revenue }
+    const rows = data.daily || [];
+    if (!rows.length) { $('#dailyTable').innerHTML = '<p class="p-4 text-sm opacity-60">No data.</p>'; return; }
+    const header = `
+      <thead class="lw-bg-olive text-white text-xs uppercase tracking-wide">
+        <tr>
+          <th class="sticky-col lw-bg-olive text-left px-3 py-2">Date</th>
+          <th class="text-right px-3 py-2">Calls</th>
+          <th class="text-right px-3 py-2">Live</th>
+          <th class="text-right px-3 py-2">Show %</th>
+          <th class="text-right px-3 py-2">Offers</th>
+          <th class="text-right px-3 py-2">Sales</th>
+          <th class="text-right px-3 py-2">Close %</th>
+          <th class="text-right px-3 py-2">Cash</th>
+          <th class="text-right px-3 py-2">Revenue</th>
+        </tr>
+      </thead>`;
+    const body = rows.map((r, i) => `
+      <tr class="${i % 2 ? 'bg-stone-50' : 'bg-white'} text-sm">
+        <td class="sticky-col ${i % 2 ? 'bg-stone-50' : 'bg-white'} font-medium px-3 py-2 whitespace-nowrap">
+          <div>${r.label}</div>
+          <div class="text-[10px] opacity-60">${r.dayName || ''}</div>
+        </td>
+        <td class="text-right px-3 py-2">${fmtNum(r.callsBooked)}</td>
+        <td class="text-right px-3 py-2">${fmtNum(r.liveCalls)}</td>
+        <td class="text-right px-3 py-2 font-medium">${fmtPct(r.showRate)}</td>
+        <td class="text-right px-3 py-2">${fmtNum(r.offersMade)}</td>
+        <td class="text-right px-3 py-2">${fmtNum(r.sales)}</td>
+        <td class="text-right px-3 py-2 font-medium">${fmtPct(r.closeRate)}</td>
+        <td class="text-right px-3 py-2 text-green-700">${fmtMoney(r.cash)}</td>
+        <td class="text-right px-3 py-2 text-green-700">${fmtMoney(r.revenue)}</td>
+      </tr>`).join('');
+    $('#dailyTable').innerHTML = `<table class="min-w-full">${header}<tbody>${body}</tbody></table>`;
   }
 
   function renderWeekly() {
@@ -318,7 +364,7 @@
       b.classList.toggle('border-b-2', true);
       b.style.borderBottomColor = on ? 'var(--lw-olive)' : 'transparent';
     });
-    ['daily','weekly','monthly','reps'].forEach(t => {
+    ['dashboard','daily','weekly','monthly','reps'].forEach(t => {
       $('#tab-' + t).classList.toggle('hidden', t !== name);
     });
   }
