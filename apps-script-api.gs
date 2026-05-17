@@ -217,41 +217,40 @@ function readRepBreakdown(sh) {
 
 // ============================================================================
 // SALES — Sales tab (paid bookings ledger)
-// Returns aggregates per date — no names exposed.
-// Sales tab cols: A=Timeline, B=Date of Purchase, C=Name (skip), D=Retreat Length,
-//   E=Private/Shared, F=Retreat #, G=Amount Closed, H=Amount Collected,
+// Sales tab cols (data starts row 4):
+//   A=Timeline, B=Date of Purchase, C=Name, D=Retreat Length, E=Private/Shared,
+//   F=Retreat #, G=Amount Closed, H=Amount Collected (DROPPED),
 //   I=Source, J=Sales Person, K=Media Buyer, L=Retreat Dates, M=Notes
+// Returns rows in the same column order as the sheet (minus Amount Collected).
 // ============================================================================
 function readSalesLog(sh) {
   if (!sh) return [];
   var lastRow = sh.getLastRow();
   if (lastRow < 4) return [];
-  var data = sh.getRange(4, 1, lastRow - 3, 11).getValues();
+  var data = sh.getRange(4, 1, lastRow - 3, 13).getValues();
 
   var rows = [];
   for (var i = 0; i < data.length; i++) {
     var dateVal = data[i][1]; // col B
     if (!(dateVal instanceof Date)) continue;
 
-    var closed    = Number(data[i][6]) || 0; // G
-    var collected = Number(data[i][7]) || 0; // H
-    var source    = String(data[i][8] || '').trim(); // I
-    var rep       = String(data[i][9] || '').trim(); // J
-    var mediaBuyer = String(data[i][10] || '').trim(); // K
-
-    if (closed === 0 && collected === 0) continue;
+    var closed = Number(data[i][6]) || 0; // G
+    if (closed === 0) continue;
 
     rows.push({
-      date:       Utilities.formatDate(dateVal, TZ, 'MM/dd/yyyy'),
       _epoch:     dateVal.getTime(),
-      length:     String(data[i][3] || ''),
-      type:       String(data[i][4] || ''),
-      retreatNum: String(data[i][5] || ''),
-      closed:     closed,
-      collected:  collected,
-      source:     source,
-      rep:        rep,
-      mediaBuyer: mediaBuyer
+      timeline:   String(data[i][0] || ''),  // A
+      date:       Utilities.formatDate(dateVal, TZ, 'MM/dd/yyyy'), // B
+      name:       String(data[i][2] || ''),  // C
+      length:     String(data[i][3] || ''),  // D
+      type:       String(data[i][4] || ''),  // E
+      retreatNum: String(data[i][5] || ''),  // F
+      closed:     closed,                     // G
+      source:     String(data[i][8] || ''),   // I
+      rep:        String(data[i][9] || ''),   // J
+      mediaBuyer: String(data[i][10] || ''),  // K
+      retreatDates: String(data[i][11] || ''),// L
+      notes:      String(data[i][12] || '')   // M
     });
   }
 
@@ -356,9 +355,9 @@ function readAdsTracker(sh) {
 }
 
 // ============================================================================
-// SOURCES — Sales by Source / Raw Bookings, grouped by month + booking source
+// SOURCES — Sales by Source / Raw Bookings, grouped by month + source category
 // Raw Bookings cols: A=Date, D=BookingRef, E=GuestName(skip), H=Amount,
-//                    O=Status, P=Booking Source
+//                    J=Source Category (used here), O=Status, P=Booking Source
 // Only returns aggregates: { month, source, bookings, revenue }.
 // ============================================================================
 function readSalesBySource(sh) {
@@ -382,7 +381,9 @@ function readSalesBySource(sh) {
     }
 
     var amount = Number(data[i][7]) || 0;
-    var source = String(data[i][15] || '').trim();
+    // Col J = source category (index 9). Falls back to col P if J is blank.
+    var source = String(data[i][9] || '').trim();
+    if (!source) source = String(data[i][15] || '').trim();
     if (!source) source = '(no source)';
 
     var ymKey = Utilities.formatDate(dateVal, TZ, 'yyyy-MM');

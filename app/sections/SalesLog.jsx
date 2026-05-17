@@ -6,16 +6,21 @@ import KpiBlock from '../components/KpiBlock';
 import { fmtNum, fmtMoney } from '@/lib/format';
 
 // Sales tab — every booking the team has closed. Aggregated KPIs at top + full table.
+// Column order matches the Sales tab in the sheet (Amount Collected dropped).
 
 const columns = [
-  { key: 'date',       label: 'Date',         align: 'left' },
-  { key: 'rep',        label: 'Sales Rep',    align: 'left' },
-  { key: 'mediaBuyer', label: 'Media Buyer',  align: 'left' },
-  { key: 'source',     label: 'Source',       align: 'left' },
-  { key: 'type',       label: 'Type',         align: 'left' },
-  { key: 'length',     label: 'Length',       align: 'left' },
-  { key: 'closed',     label: 'Closed',       align: 'right', format: fmtMoney, variant: 'money' },
-  { key: 'collected',  label: 'Collected',    align: 'right', format: fmtMoney, variant: 'money' }
+  { key: 'timeline',     label: 'Timeline',       align: 'left' },
+  { key: 'date',         label: 'Date',           align: 'left' },
+  { key: 'name',         label: 'Name',           align: 'left' },
+  { key: 'length',       label: 'Length',         align: 'left' },
+  { key: 'type',         label: 'Private/Shared', align: 'left' },
+  { key: 'retreatNum',   label: 'Retreat #',      align: 'left' },
+  { key: 'closed',       label: 'Closed',         align: 'right', format: fmtMoney, variant: 'money' },
+  { key: 'source',       label: 'Source',         align: 'left' },
+  { key: 'rep',          label: 'Sales Person',   align: 'left' },
+  { key: 'mediaBuyer',   label: 'Media Buyer',    align: 'left' },
+  { key: 'retreatDates', label: 'Retreat Dates',  align: 'left' },
+  { key: 'notes',        label: 'Notes',          align: 'left' }
 ];
 
 // MM/dd/yyyy → first-of-month label "MMM YYYY"
@@ -47,8 +52,7 @@ export default function SalesLog({ data }) {
   }, [rows, filter]);
 
   // Aggregates
-  const totalClosed    = filtered.reduce((a, r) => a + (Number(r.closed) || 0), 0);
-  const totalCollected = filtered.reduce((a, r) => a + (Number(r.collected) || 0), 0);
+  const totalClosed = filtered.reduce((a, r) => a + (Number(r.closed) || 0), 0);
 
   return (
     <div>
@@ -80,9 +84,8 @@ export default function SalesLog({ data }) {
         <KpiBlock
           cols={3}
           items={[
-            { label: 'Bookings',  value: fmtNum(filtered.length) },
-            { label: 'Closed',    value: fmtMoney(totalClosed),    variant: 'money' },
-            { label: 'Collected', value: fmtMoney(totalCollected), variant: 'money' }
+            { label: 'Bookings', value: fmtNum(filtered.length) },
+            { label: 'Closed',   value: fmtMoney(totalClosed), variant: 'money' }
           ]}
         />
       </div>
