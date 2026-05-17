@@ -15,13 +15,8 @@ import Sources from './sections/Sources';
 import { fetchDashboard } from '@/lib/api';
 
 const NAV_CONFIG = {
-  Sales: [
-    { key: 'dashboard', label: 'Dashboard' },
-    { key: 'daily',     label: 'Daily' },
-    { key: 'weekly',    label: 'Weekly' },
-    { key: 'monthly',   label: 'Monthly' },
-    { key: 'reps',      label: 'Reps' },
-    { key: 'log',       label: 'Sales Log' }
+  'Sales by Source': [
+    { key: 'monthly',   label: 'Monthly' }
   ],
   Ads: [
     { key: 'dashboard', label: 'Dashboard' },
@@ -29,8 +24,13 @@ const NAV_CONFIG = {
     { key: 'weekly',    label: 'Weekly' },
     { key: 'monthly',   label: 'Monthly' }
   ],
-  Sources: [
-    { key: 'monthly',   label: 'Monthly' }
+  'Sales Team': [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: 'daily',     label: 'Daily' },
+    { key: 'weekly',    label: 'Weekly' },
+    { key: 'monthly',   label: 'Monthly' },
+    { key: 'reps',      label: 'Reps' },
+    { key: 'log',       label: 'Sales Log' }
   ]
 };
 
@@ -40,7 +40,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [section, setSection] = useState('Sales');
+  const [section, setSection] = useState('Sales Team');
   const [tab, setTab] = useState('dashboard');
 
   const load = useCallback(async () => {
@@ -96,14 +96,9 @@ export default function HomePage() {
 }
 
 function renderView({ section, tab, data }) {
-  // SALES
-  if (section === 'Sales') {
-    if (tab === 'dashboard') return <SalesDashboard data={data.sales?.dashboard} />;
-    if (tab === 'daily')     return <SalesDaily data={data.sales?.daily} />;
-    if (tab === 'weekly')    return <SalesTracker title="Weekly Tracker"  labelHeader="Week"  data={data.sales?.weekly} />;
-    if (tab === 'monthly')   return <SalesTracker title="Monthly Tracker" labelHeader="Month" data={data.sales?.monthly} isMonth />;
-    if (tab === 'reps')      return <SalesReps data={data.sales?.reps} />;
-    if (tab === 'log')       return <SalesLog data={data.sales?.log} />;
+  // SALES BY SOURCE
+  if (section === 'Sales by Source') {
+    return <Sources data={data.sources?.monthly} />;
   }
   // ADS
   if (section === 'Ads') {
@@ -112,9 +107,14 @@ function renderView({ section, tab, data }) {
     if (tab === 'weekly')    return <AdsTracker title="Weekly Tracker"  labelHeader="Week"  data={data.ads?.weekly} />;
     if (tab === 'monthly')   return <AdsTracker title="Monthly Tracker" labelHeader="Month" data={data.ads?.monthly} isMonth />;
   }
-  // SOURCES
-  if (section === 'Sources') {
-    return <Sources data={data.sources?.monthly} />;
+  // SALES TEAM
+  if (section === 'Sales Team') {
+    if (tab === 'dashboard') return <SalesDashboard data={data.sales?.dashboard} />;
+    if (tab === 'daily')     return <SalesDaily data={data.sales?.daily} />;
+    if (tab === 'weekly')    return <SalesTracker title="Weekly Tracker"  labelHeader="Week"  data={data.sales?.weekly} />;
+    if (tab === 'monthly')   return <SalesTracker title="Monthly Tracker" labelHeader="Month" data={data.sales?.monthly} isMonth />;
+    if (tab === 'reps')      return <SalesReps data={data.sales?.reps} />;
+    if (tab === 'log')       return <SalesLog data={data.sales?.log} />;
   }
   return null;
 }
