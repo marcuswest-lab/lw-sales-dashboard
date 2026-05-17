@@ -6,16 +6,16 @@ export default function DataTable({ rows, columns, emptyMsg = 'No data.' }) {
   }
 
   return (
-    <div className="overflow-x-auto scroll-x rounded-lg shadow-sm bg-white">
+    <div className="overflow-auto scroll-x rounded-lg shadow-sm bg-white max-h-[70vh]">
       <table className="min-w-full">
-        <thead className="bg-olive text-white text-xs uppercase tracking-wide">
+        <thead className="bg-olive text-white text-xs uppercase tracking-wide sticky top-0 z-10">
           <tr>
             {columns.map((c, i) => (
               <th
                 key={c.key}
                 className={
-                  'px-3 py-2 ' + (c.align === 'right' ? 'text-right' : 'text-left') +
-                  (i === 0 ? ' sticky-col bg-olive' : '')
+                  'px-3 py-2 bg-olive ' + (c.align === 'right' ? 'text-right' : 'text-left') +
+                  (i === 0 ? ' sticky left-0 z-20' : '')
                 }
               >
                 {c.label}
