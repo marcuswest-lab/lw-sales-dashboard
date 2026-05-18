@@ -16,7 +16,8 @@ import { fetchDashboard } from '@/lib/api';
 
 const NAV_CONFIG = {
   'Sales by Source': [
-    { key: 'monthly',   label: 'Monthly' }
+    { key: 'monthly',   label: 'Monthly' },
+    { key: 'all-time',  label: 'All-Time' }
   ],
   Ads: [
     { key: 'dashboard', label: 'Dashboard' },
@@ -98,7 +99,7 @@ export default function HomePage() {
 function renderView({ section, tab, data }) {
   // SALES BY SOURCE
   if (section === 'Sales by Source') {
-    return <Sources data={data.sources?.monthly} />;
+    return <Sources data={data.sources?.monthly} mode={tab} />;
   }
   // ADS
   if (section === 'Ads') {

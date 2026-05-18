@@ -11,20 +11,51 @@ const columns = [
   { key: 'revenue',  label: 'Revenue',  align: 'right', format: fmtMoney, variant: 'money' }
 ];
 
-export default function Sources({ data }) {
+export default function Sources({ data, mode = 'monthly' }) {
   const rows = data || [];
+
+  // All-Time view: filter to just the All-Time rows
+  if (mode === 'all-time') {
+    const allTimeRows = rows.filter((r) => r.month === 'All-Time');
+    const totalBookings = allTimeRows.reduce((a, r) => a + (Number(r.bookings) || 0), 0);
+    const totalRevenue  = allTimeRows.reduce((a, r) => a + (Number(r.revenue)  || 0), 0);
+
+    if (!allTimeRows.length) {
+      return <p className="p-4 text-sm opacity-60">No all-time source data.</p>;
+    }
+
+    return (
+      <div>
+        <h2 className="text-lg font-bold mb-3">Sales by Source — All-Time</h2>
+        <div className="mb-4">
+          <KpiBlock
+            cols={3}
+            items={[
+              { label: 'Sources',  value: fmtNum(allTimeRows.length) },
+              { label: 'Bookings', value: fmtNum(totalBookings) },
+              { label: 'Revenue',  value: fmtMoney(totalRevenue), variant: 'money' }
+            ]}
+          />
+        </div>
+        <DataTable rows={allTimeRows} columns={columns} />
+      </div>
+    );
+  }
+
+  // Monthly view: exclude All-Time, show pills per real month
+  const monthlyRows = rows.filter((r) => r.month !== 'All-Time');
 
   const months = useMemo(() => {
     const seen = new Set();
-    rows.forEach((r) => seen.add(r.month));
+    monthlyRows.forEach((r) => seen.add(r.month));
     return Array.from(seen);
-  }, [rows]);
+  }, [monthlyRows]);
 
   const [active, setActive] = useState(months[0]);
 
   const filtered = useMemo(() => {
-    return rows.filter((r) => r.month === (active || months[0]));
-  }, [rows, active, months]);
+    return monthlyRows.filter((r) => r.month === (active || months[0]));
+  }, [monthlyRows, active, months]);
 
   const totalBookings = filtered.reduce((a, r) => a + (Number(r.bookings) || 0), 0);
   const totalRevenue  = filtered.reduce((a, r) => a + (Number(r.revenue)  || 0), 0);
