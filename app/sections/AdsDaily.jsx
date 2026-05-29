@@ -22,10 +22,10 @@ const columns = [
   { key: 'roas',        label: 'ROAS',     align: 'right', format: fmtRoas, variant: 'money' }
 ];
 
-export default function AdsDaily({ data }) {
+export default function AdsDaily({ data, title }) {
   return (
     <div>
-      <h2 className="text-lg font-bold mb-3">Daily (Last 30 Days)</h2>
+      <h2 className="text-lg font-bold mb-3">{title || 'Daily (Last 30 Days)'}</h2>
       <DataTable rows={data || []} columns={columns} />
     </div>
   );

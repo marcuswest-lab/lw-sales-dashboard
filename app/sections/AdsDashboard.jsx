@@ -15,10 +15,11 @@ function block(d) {
   ];
 }
 
-export default function AdsDashboard({ data }) {
-  if (!data) return null;
+export default function AdsDashboard({ data, title }) {
+  if (!data) return <p className="p-4 text-sm opacity-60">No data yet.</p>;
   return (
     <div className="grid gap-6">
+      {title && <h2 className="text-lg font-bold">{title}</h2>}
       <KpiBlock title="Yesterday"    items={block(data.yesterday)} />
       <KpiBlock title="Week to Date" items={block(data.wtd)} />
       <KpiBlock title="Month to Date" items={block(data.mtd)} />

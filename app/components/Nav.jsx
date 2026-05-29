@@ -1,9 +1,12 @@
 'use client';
 
-// Two-level nav: top row = sections, bottom row = sub-tabs for current section
-export default function Nav({ section, setSection, tab, setTab, config }) {
+// Three-level nav: sections → tabs → optional sub-tabs.
+// A tab can declare `subTabs: [...]` and the nav will render a third row.
+export default function Nav({ section, setSection, tab, setTab, subTab, setSubTab, config }) {
   const sections = Object.keys(config);
   const tabs = config[section] || [];
+  const activeTab = tabs.find((t) => t.key === tab);
+  const subTabs = activeTab?.subTabs || [];
 
   return (
     <nav className="bg-sand border-b border-olive">
@@ -16,9 +19,12 @@ export default function Nav({ section, setSection, tab, setTab, config }) {
               key={s}
               onClick={() => {
                 setSection(s);
-                // reset to first sub-tab of new section
-                const first = config[s]?.[0]?.key;
-                if (first) setTab(first);
+                const firstTab = config[s]?.[0];
+                if (firstTab) {
+                  setTab(firstTab.key);
+                  const firstSub = firstTab.subTabs?.[0]?.key;
+                  setSubTab && setSubTab(firstSub || null);
+                }
               }}
               className={
                 'flex-shrink-0 px-4 py-3 text-sm font-bold uppercase tracking-wide transition ' +
@@ -37,7 +43,11 @@ export default function Nav({ section, setSection, tab, setTab, config }) {
           return (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => {
+                setTab(t.key);
+                const firstSub = t.subTabs?.[0]?.key;
+                setSubTab && setSubTab(firstSub || null);
+              }}
               className={
                 'flex-shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition ' +
                 (on ? 'border-olive text-olive' : 'border-transparent text-olive/60 hover:text-olive')
@@ -48,6 +58,26 @@ export default function Nav({ section, setSection, tab, setTab, config }) {
           );
         })}
       </div>
+      {/* Sub-sub-tab row (only when active tab has subTabs) */}
+      {subTabs.length > 0 && (
+        <div className="max-w-6xl mx-auto flex overflow-x-auto scroll-x border-t border-olive/10 bg-sand/50">
+          {subTabs.map((st) => {
+            const on = st.key === subTab;
+            return (
+              <button
+                key={st.key}
+                onClick={() => setSubTab(st.key)}
+                className={
+                  'flex-shrink-0 px-3 py-2 text-xs font-medium uppercase tracking-wide transition ' +
+                  (on ? 'text-olive border-b-2 border-olive' : 'text-olive/50 hover:text-olive')
+                }
+              >
+                {st.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </nav>
   );
 }

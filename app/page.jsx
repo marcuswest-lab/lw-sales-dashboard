@@ -14,16 +14,23 @@ import AdsTracker from './sections/AdsTracker';
 import Sources from './sections/Sources';
 import { fetchDashboard } from '@/lib/api';
 
+const ADS_METRIC_TABS = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'daily',     label: 'Daily' },
+  { key: 'weekly',    label: 'Weekly' },
+  { key: 'monthly',   label: 'Monthly' }
+];
+
 const NAV_CONFIG = {
   'Sales by Source': [
     { key: 'monthly',   label: 'Monthly' },
     { key: 'all-time',  label: 'All-Time' }
   ],
   Ads: [
-    { key: 'dashboard', label: 'Dashboard' },
-    { key: 'daily',     label: 'Daily' },
-    { key: 'weekly',    label: 'Weekly' },
-    { key: 'monthly',   label: 'Monthly' }
+    { key: 'all',      label: 'All',      subTabs: ADS_METRIC_TABS },
+    { key: 'google',   label: 'Google',   subTabs: ADS_METRIC_TABS },
+    { key: 'facebook', label: 'Facebook', subTabs: ADS_METRIC_TABS },
+    { key: 'tiktok',   label: 'TikTok',   subTabs: ADS_METRIC_TABS }
   ],
   'Sales Team': [
     { key: 'dashboard', label: 'Dashboard' },
@@ -43,6 +50,7 @@ export default function HomePage() {
 
   const [section, setSection] = useState('Sales Team');
   const [tab, setTab] = useState('dashboard');
+  const [subTab, setSubTab] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -68,7 +76,7 @@ export default function HomePage() {
     <div>
       <div className="sticky top-0 z-20 shadow-md">
         <Header asOf={data?.asOf} onRefresh={onRefresh} refreshing={refreshing} />
-        <Nav section={section} setSection={setSection} tab={tab} setTab={setTab} config={NAV_CONFIG} />
+        <Nav section={section} setSection={setSection} tab={tab} setTab={setTab} subTab={subTab} setSubTab={setSubTab} config={NAV_CONFIG} />
       </div>
 
       <main className="max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
@@ -86,7 +94,7 @@ export default function HomePage() {
           <p className="text-red-700 font-medium py-10 text-center">⚠️ Failed to load: {error}</p>
         )}
 
-        {data && !loading && !error && renderView({ section, tab, data })}
+        {data && !loading && !error && renderView({ section, tab, subTab, data })}
       </main>
 
       <footer className="text-center text-xs opacity-50 py-4">
@@ -96,17 +104,39 @@ export default function HomePage() {
   );
 }
 
-function renderView({ section, tab, data }) {
+function renderView({ section, tab, subTab, data }) {
   // SALES BY SOURCE
   if (section === 'Sales by Source') {
     return <Sources data={data.sources?.monthly} mode={tab} />;
   }
-  // ADS
+  // ADS — section "Ads", tab = platform (all/google/facebook/tiktok), subTab = metric view
   if (section === 'Ads') {
-    if (tab === 'dashboard') return <AdsDashboard data={data.ads?.dashboard} />;
-    if (tab === 'daily')     return <AdsDaily data={data.ads?.daily} />;
-    if (tab === 'weekly')    return <AdsTracker title="Weekly Tracker"  labelHeader="Week"  data={data.ads?.weekly} />;
-    if (tab === 'monthly')   return <AdsTracker title="Monthly Tracker" labelHeader="Month" data={data.ads?.monthly} isMonth />;
+    const platformLabels = {
+      all:      'All Ads',
+      google:   'Google Ads',
+      facebook: 'Facebook Ads',
+      tiktok:   'TikTok Ads'
+    };
+    const platformLabel = platformLabels[tab] || 'Ads';
+    // Google falls back to legacy ads.{dashboard,daily,weekly,monthly} if the
+    // new ads.google slot isn't present yet (Apps Script not redeployed).
+    let platformData = data.ads?.[tab];
+    if (!platformData && tab === 'google' && data.ads) {
+      platformData = {
+        dashboard: data.ads.dashboard,
+        daily:     data.ads.daily,
+        weekly:    data.ads.weekly,
+        monthly:   data.ads.monthly
+      };
+    }
+    if (!platformData) {
+      return <p className="p-4 text-sm opacity-60">No data for {platformLabel} yet.</p>;
+    }
+    const metric = subTab || 'dashboard';
+    if (metric === 'dashboard') return <AdsDashboard data={platformData.dashboard} title={`${platformLabel} — Dashboard`} />;
+    if (metric === 'daily')     return <AdsDaily     data={platformData.daily}     title={`${platformLabel} — Daily`} />;
+    if (metric === 'weekly')    return <AdsTracker   title={`${platformLabel} — Weekly Tracker`}  labelHeader="Week"  data={platformData.weekly} />;
+    if (metric === 'monthly')   return <AdsTracker   title={`${platformLabel} — Monthly Tracker`} labelHeader="Month" data={platformData.monthly} isMonth />;
   }
   // SALES TEAM
   if (section === 'Sales Team') {

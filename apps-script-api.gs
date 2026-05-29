@@ -54,12 +54,37 @@ function buildPayload() {
       log:       readSalesLog(salesSS.getSheetByName('Sales'))
     },
 
-    // Ads section
+    // Ads section — computed per-platform from each daily tab.
+    // Tabs: GG Daily (Google), FB Daily (Facebook), TT Daily (TikTok).
+    // Each function handles missing tabs gracefully (returns null/[]).
+    // `all` is computed in-API by summing the three platforms day-by-day so
+    // it does not depend on an All Ads Daily tab being populated with rows.
     ads: {
-      dashboard: readAdsDaily(mktSS.getSheetByName('Daily Report')),
-      daily:     readAdsByDate(mktSS.getSheetByName('Dashboard'), 30),
-      weekly:    readAdsTracker(mktSS.getSheetByName('Weekly Tracker')),
-      monthly:   readAdsTracker(mktSS.getSheetByName('Monthly Tracker'))
+      google: {
+        dashboard: readAdsDashboardFromRaw(mktSS.getSheetByName('GG Daily')),
+        daily:     readAdsByDate(mktSS.getSheetByName('GG Daily'), 30),
+        weekly:    readAdsTrackerFromRaw(mktSS.getSheetByName('GG Daily'), 'week'),
+        monthly:   readAdsTrackerFromRaw(mktSS.getSheetByName('GG Daily'), 'month')
+      },
+      facebook: {
+        dashboard: readAdsDashboardFromRaw(mktSS.getSheetByName('FB Daily')),
+        daily:     readAdsByDate(mktSS.getSheetByName('FB Daily'), 30),
+        weekly:    readAdsTrackerFromRaw(mktSS.getSheetByName('FB Daily'), 'week'),
+        monthly:   readAdsTrackerFromRaw(mktSS.getSheetByName('FB Daily'), 'month')
+      },
+      tiktok: {
+        dashboard: readAdsDashboardFromRaw(mktSS.getSheetByName('TT Daily')),
+        daily:     readAdsByDate(mktSS.getSheetByName('TT Daily'), 30),
+        weekly:    readAdsTrackerFromRaw(mktSS.getSheetByName('TT Daily'), 'week'),
+        monthly:   readAdsTrackerFromRaw(mktSS.getSheetByName('TT Daily'), 'month')
+      },
+      all: buildAllAdsAggregate_(mktSS),
+
+      // Legacy alias — points at Google so old clients don't break
+      dashboard: readAdsDashboardFromRaw(mktSS.getSheetByName('GG Daily')),
+      daily:     readAdsByDate(mktSS.getSheetByName('GG Daily'), 30),
+      weekly:    readAdsTrackerFromRaw(mktSS.getSheetByName('GG Daily'), 'week'),
+      monthly:   readAdsTrackerFromRaw(mktSS.getSheetByName('GG Daily'), 'month')
     },
 
     // Sources section
@@ -260,33 +285,124 @@ function readSalesLog(sh) {
 }
 
 // ============================================================================
-// ADS — Marketing Daily Report (Yesterday / WTD / MTD / Pace KPI blocks)
+// ADS — Compute Yesterday / WTD / MTD / Pace directly from the Dashboard tab
+// (Bypasses the Marketing Daily Report tab whose formulas reference outdated
+// column positions.) Uses the same col indices as readAdsByDate.
 // ============================================================================
-function readAdsDaily(sh) {
+function readAdsDashboardFromRaw(sh) {
   if (!sh) return null;
-  // 9 metrics: Spend, Leads, CPL, BookedCalls, CostPerBC, Sales, CPA, Revenue, ROAS
-  var keys = ['spend','leads','cpl','bookedCalls','costPerBC','sales','cpa','revenue','roas'];
-  return {
-    yesterday: readBlock(sh, 6,  keys),  // rows 6-14
-    wtd:       readBlock(sh, 17, keys),  // rows 17-25
-    mtd:       readBlock(sh, 28, keys),  // rows 28-36
-    pace:      readBlock(sh, 39, keys)   // rows 39-47
+  var lastRow = sh.getLastRow();
+  if (lastRow < 4) return null;
+
+  // Read B..Q (16 cols). Indices: 0=B(Date) 1=C(Spend) 7=I(Leads)
+  //   10=L(Booked) 12=N(Sales) 14=P(Revenue)
+  var data = sh.getRange(4, 2, lastRow - 3, 16).getValues();
+
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var yesterday = new Date(today.getTime() - 86400000);
+  var weekStart = startOfWeek_(today);          // Monday this week (rolling 7d on Mon)
+  var monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  // For Monday rollover: if today IS Monday, use last 7 complete days
+  if (today.getDay() === 1) {
+    weekStart = new Date(today.getTime() - 7 * 86400000);
+  }
+
+  var blocks = {
+    yesterday: emptyBlock_(),
+    wtd:       emptyBlock_(),
+    mtd:       emptyBlock_(),
+    pace:      emptyBlock_()
   };
+
+  for (var i = 0; i < data.length; i++) {
+    var d = data[i][0];
+    if (!(d instanceof Date)) {
+      if (typeof d === 'string' && d) {
+        var p = new Date(d);
+        if (!isNaN(p.getTime())) d = p; else continue;
+      } else continue;
+    }
+    var dDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var spend       = Number(data[i][1])  || 0;
+    var leads       = Number(data[i][7])  || 0;
+    var bookedCalls = Number(data[i][10]) || 0;
+    var sales       = Number(data[i][12]) || 0;
+    var revenue     = Number(data[i][14]) || 0;
+
+    if (dDay.getTime() === yesterday.getTime()) addToBlock_(blocks.yesterday, spend, leads, bookedCalls, sales, revenue);
+    if (dDay >= weekStart && dDay <= (today.getDay() === 1 ? yesterday : today))
+      addToBlock_(blocks.wtd, spend, leads, bookedCalls, sales, revenue);
+    if (dDay >= monthStart && dDay <= today)
+      addToBlock_(blocks.mtd, spend, leads, bookedCalls, sales, revenue);
+  }
+
+  finalizeBlock_(blocks.yesterday);
+  finalizeBlock_(blocks.wtd);
+  finalizeBlock_(blocks.mtd);
+
+  // Pace = MTD linearly extrapolated to month-end
+  var daysElapsed = today.getDate() - 1; // exclude today (incomplete)
+  if (daysElapsed > 0) {
+    var daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    var mult = daysInMonth / daysElapsed;
+    blocks.pace = {
+      spend:       blocks.mtd.spend       * mult,
+      leads:       Math.round(blocks.mtd.leads       * mult),
+      bookedCalls: Math.round(blocks.mtd.bookedCalls * mult),
+      sales:       Math.round(blocks.mtd.sales       * mult),
+      revenue:     blocks.mtd.revenue     * mult
+    };
+    finalizeBlock_(blocks.pace);
+  } else {
+    blocks.pace = null;
+  }
+
+  return blocks;
+}
+
+function emptyBlock_() {
+  return { spend: 0, leads: 0, bookedCalls: 0, sales: 0, revenue: 0 };
+}
+
+function addToBlock_(b, spend, leads, booked, sales, revenue) {
+  b.spend       += spend;
+  b.leads       += leads;
+  b.bookedCalls += booked;
+  b.sales       += sales;
+  b.revenue     += revenue;
+}
+
+function finalizeBlock_(b) {
+  b.cpl       = (b.leads > 0)       ? b.spend / b.leads       : 0;
+  b.costPerBC = (b.bookedCalls > 0) ? b.spend / b.bookedCalls : 0;
+  b.cpa       = (b.sales > 0)       ? b.spend / b.sales       : 0;
+  b.roas      = (b.spend > 0)       ? b.revenue / b.spend     : 0;
+}
+
+function startOfWeek_(d) {
+  // Monday as start of week. JS Sun=0..Sat=6
+  var day = d.getDay();
+  var diff = (day === 0) ? -6 : (1 - day); // back to Monday
+  return new Date(d.getTime() + diff * 86400000);
 }
 
 // ============================================================================
 // ADS — Marketing Dashboard tab aggregated 1 row per date
-// Dashboard cols (from setup-marketing-dashboard.gs):
-//   B=Date, C=Spend, J=Leads, K=Booked Calls, N=Sales, P=Revenue
+// Dashboard cols (confirmed from sheet, May 2026):
+//   A=Timeline B=Date C=Spend D=Impressions E=CPM F=Clicks G=CTR H=CPC
+//   I=Leads(LF) J=CPL(LF) K=Opt-in Rate L=Booked Calls M=Cost/BC
+//   N=Sales O=CPA P=Revenue Q=ROAS
+// We read B..Q (col 2..17) = 16 cols. Indices relative to that slice:
+//   0=B(Date) 1=C(Spend) 7=I(Leads) 10=L(Booked) 12=N(Sales) 14=P(Revenue)
 // ============================================================================
 function readAdsByDate(sh, limit) {
   if (!sh) return [];
   var lastRow = sh.getLastRow();
   if (lastRow < 4) return [];
 
-  // Read B-P (col 2 through col 16) = 15 cols
-  var data = sh.getRange(4, 2, lastRow - 3, 15).getValues();
-  // indices: 0=B(Date) 1=C(Spend) 8=J(Leads) 9=K(Booked) 12=N(Sales) 14=P(Revenue)
+  var data = sh.getRange(4, 2, lastRow - 3, 16).getValues();
 
   var byDate = {};
   for (var i = 0; i < data.length; i++) {
@@ -308,11 +424,11 @@ function readAdsByDate(sh, limit) {
       };
     }
     var r = byDate[key];
-    r.spend       += Number(data[i][1])  || 0;
-    r.leads       += Number(data[i][8])  || 0;
-    r.bookedCalls += Number(data[i][9])  || 0;
-    r.sales       += Number(data[i][12]) || 0;
-    r.revenue     += Number(data[i][14]) || 0;
+    r.spend       += Number(data[i][1])  || 0;  // C
+    r.leads       += Number(data[i][7])  || 0;  // I
+    r.bookedCalls += Number(data[i][10]) || 0;  // L
+    r.sales       += Number(data[i][12]) || 0;  // N
+    r.revenue     += Number(data[i][14]) || 0;  // P
   }
 
   var arr = Object.keys(byDate).map(function(k) { return byDate[k]; });
@@ -331,10 +447,71 @@ function readAdsByDate(sh, limit) {
 }
 
 // ============================================================================
-// ADS — Marketing Weekly / Monthly Tracker
-// Headers: A=Label, B=Spend, C=Leads, D=CPL, E=Booked Calls, F=Cost/BC,
-//          G=Sales, H=CPA, I=Revenue, J=ROAS
+// ADS — Compute Weekly / Monthly tracker from the raw Dashboard tab.
+// Same col mapping as readAdsByDate:
+//   0=B(Date) 1=C(Spend) 7=I(Leads) 10=L(Booked) 12=N(Sales) 14=P(Revenue)
+// Returns rows newest-first, only periods with actual spend.
 // ============================================================================
+function readAdsTrackerFromRaw(sh, grouping) {
+  if (!sh) return [];
+  var lastRow = sh.getLastRow();
+  if (lastRow < 4) return [];
+
+  var data = sh.getRange(4, 2, lastRow - 3, 16).getValues();
+  var byKey = {};
+
+  for (var i = 0; i < data.length; i++) {
+    var d = data[i][0];
+    if (!(d instanceof Date)) {
+      if (typeof d === 'string' && d) {
+        var p = new Date(d);
+        if (!isNaN(p.getTime())) d = p; else continue;
+      } else continue;
+    }
+
+    var key, label, sortDate;
+    if (grouping === 'month') {
+      sortDate = new Date(d.getFullYear(), d.getMonth(), 1);
+      key = Utilities.formatDate(sortDate, TZ, 'yyyy-MM');
+      label = Utilities.formatDate(sortDate, TZ, 'MM/dd/yyyy');
+    } else { // week — Monday start
+      var weekStart = startOfWeek_(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+      sortDate = weekStart;
+      key = Utilities.formatDate(weekStart, TZ, 'yyyy-MM-dd');
+      label = Utilities.formatDate(weekStart, TZ, 'MM/dd/yyyy');
+    }
+
+    if (!byKey[key]) {
+      byKey[key] = {
+        _epoch: sortDate.getTime(),
+        label: label,
+        spend: 0, leads: 0, bookedCalls: 0, sales: 0, revenue: 0
+      };
+    }
+    var r = byKey[key];
+    r.spend       += Number(data[i][1])  || 0;
+    r.leads       += Number(data[i][7])  || 0;
+    r.bookedCalls += Number(data[i][10]) || 0;
+    r.sales       += Number(data[i][12]) || 0;
+    r.revenue     += Number(data[i][14]) || 0;
+  }
+
+  var arr = Object.keys(byKey).map(function(k) { return byKey[k]; });
+  arr.sort(function(a, b) { return b._epoch - a._epoch; });
+
+  for (var i = 0; i < arr.length; i++) {
+    var r = arr[i];
+    r.cpl       = (r.leads > 0)       ? r.spend / r.leads       : 0;
+    r.costPerBC = (r.bookedCalls > 0) ? r.spend / r.bookedCalls : 0;
+    r.cpa       = (r.sales > 0)       ? r.spend / r.sales       : 0;
+    r.roas      = (r.spend > 0)       ? r.revenue / r.spend     : 0;
+    delete r._epoch;
+  }
+  return arr;
+}
+
+// Legacy: kept for fallback. Reads pre-built Marketing tracker tabs.
+// Not used by default — column references are stale.
 function readAdsTracker(sh) {
   if (!sh) return [];
   var lastRow = sh.getLastRow();
@@ -411,4 +588,168 @@ function readSalesBySource(sh) {
   });
   rows.forEach(function(r) { delete r.ym; });
   return rows;
+}
+
+// ============================================================================
+// ADS — AGGREGATE across all platforms (Google + Facebook + TikTok)
+// Sums each platform's per-date data day-by-day, then re-runs the same
+// dashboard/daily/weekly/monthly shape so the Vercel "All Ads" tab can use
+// the same components as a single-platform tab.
+// ============================================================================
+function buildAllAdsAggregate_(mktSS) {
+  var tabs = ['GG Daily', 'FB Daily', 'TT Daily'];
+
+  // 1. Pull each platform's per-date rows. readAdsByDate returns
+  //    [{date,label,dayName,spend,leads,bookedCalls,sales,revenue,cpl,...}, ...]
+  //    (sorted recent first, limit 30 — we override limit for aggregation).
+  var perDate = {}; // key = yyyy-MM-dd, value = {spend, leads, bookedCalls, sales, revenue, _date}
+  for (var t = 0; t < tabs.length; t++) {
+    var sh = mktSS.getSheetByName(tabs[t]);
+    if (!sh) continue;
+    var lastRow = sh.getLastRow();
+    if (lastRow < 4) continue;
+    var data = sh.getRange(4, 2, lastRow - 3, 16).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var d = data[i][0];
+      if (!(d instanceof Date)) {
+        if (typeof d === 'string' && d) {
+          var p = new Date(d);
+          if (!isNaN(p.getTime())) d = p; else continue;
+        } else continue;
+      }
+      var key = Utilities.formatDate(d, TZ, 'yyyy-MM-dd');
+      if (!perDate[key]) {
+        perDate[key] = {
+          _date: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
+          spend: 0, leads: 0, bookedCalls: 0, sales: 0, revenue: 0,
+          // bookedCallsSet: whether ANY tab contributed booked calls — used to
+          // dedupe (booked calls are shared across platform tabs by V8 backfill)
+          bookedCallsMax: 0
+        };
+      }
+      perDate[key].spend       += Number(data[i][1])  || 0;
+      perDate[key].leads       += Number(data[i][7])  || 0;
+      var bc = Number(data[i][10]) || 0;
+      // Booked Calls are mirrored across all 3 platform tabs by V8. Take MAX
+      // not SUM to avoid triple-counting.
+      if (bc > perDate[key].bookedCallsMax) perDate[key].bookedCallsMax = bc;
+      perDate[key].sales       += Number(data[i][12]) || 0;
+      perDate[key].revenue     += Number(data[i][14]) || 0;
+    }
+  }
+
+  // Resolve bookedCalls = max
+  Object.keys(perDate).forEach(function(k) { perDate[k].bookedCalls = perDate[k].bookedCallsMax; });
+
+  // 2. Build the four output shapes from perDate
+
+  // ----- daily (last 30 days, recent first) -----
+  var dailyArr = Object.keys(perDate).map(function(k) {
+    var pd = perDate[k];
+    return {
+      _epoch: pd._date.getTime(),
+      label:  Utilities.formatDate(pd._date, TZ, 'MM/dd/yyyy'),
+      dayName: Utilities.formatDate(pd._date, TZ, 'EEE'),
+      spend: pd.spend,
+      leads: pd.leads,
+      bookedCalls: pd.bookedCalls,
+      sales: pd.sales,
+      revenue: pd.revenue,
+      cpl:       pd.leads > 0 ? pd.spend / pd.leads : 0,
+      costPerBC: pd.bookedCalls > 0 ? pd.spend / pd.bookedCalls : 0,
+      cpa:       pd.sales > 0 ? pd.spend / pd.sales : 0,
+      roas:      pd.spend > 0 ? pd.revenue / pd.spend : 0
+    };
+  });
+  dailyArr.sort(function(a, b) { return b._epoch - a._epoch; });
+  var daily = dailyArr.slice(0, 30).map(function(r) { delete r._epoch; return r; });
+
+  // ----- dashboard (yesterday / wtd / mtd / pace) -----
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var yesterday = new Date(today.getTime() - 86400000);
+  var weekStart = startOfWeek_(today);
+  if (today.getDay() === 1) weekStart = new Date(today.getTime() - 7 * 86400000);
+  var monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  var blocks = {
+    yesterday: emptyBlock_(),
+    wtd:       emptyBlock_(),
+    mtd:       emptyBlock_(),
+    pace:      emptyBlock_()
+  };
+
+  Object.keys(perDate).forEach(function(k) {
+    var pd = perDate[k];
+    var dDay = pd._date;
+    if (dDay.getTime() === yesterday.getTime()) addToBlock_(blocks.yesterday, pd.spend, pd.leads, pd.bookedCalls, pd.sales, pd.revenue);
+    if (dDay >= weekStart && dDay <= (today.getDay() === 1 ? yesterday : today))
+      addToBlock_(blocks.wtd, pd.spend, pd.leads, pd.bookedCalls, pd.sales, pd.revenue);
+    if (dDay >= monthStart && dDay <= today)
+      addToBlock_(blocks.mtd, pd.spend, pd.leads, pd.bookedCalls, pd.sales, pd.revenue);
+  });
+
+  finalizeBlock_(blocks.yesterday);
+  finalizeBlock_(blocks.wtd);
+  finalizeBlock_(blocks.mtd);
+
+  var daysElapsed = today.getDate() - 1;
+  if (daysElapsed > 0) {
+    var daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    var mult = daysInMonth / daysElapsed;
+    blocks.pace = {
+      spend:       blocks.mtd.spend       * mult,
+      leads:       Math.round(blocks.mtd.leads       * mult),
+      bookedCalls: Math.round(blocks.mtd.bookedCalls * mult),
+      sales:       Math.round(blocks.mtd.sales       * mult),
+      revenue:     blocks.mtd.revenue     * mult
+    };
+    finalizeBlock_(blocks.pace);
+  } else {
+    blocks.pace = null;
+  }
+
+  // ----- weekly + monthly: aggregate dailyArr by week/month -----
+  function bucket(grain) {
+    var byKey = {};
+    Object.keys(perDate).forEach(function(k) {
+      var pd = perDate[k];
+      var d = pd._date;
+      var key, label;
+      if (grain === 'week') {
+        var ws = startOfWeek_(d);
+        key = Utilities.formatDate(ws, TZ, 'yyyy-MM-dd');
+        label = 'Week of ' + Utilities.formatDate(ws, TZ, 'MM/dd');
+      } else { // month
+        key = Utilities.formatDate(d, TZ, 'yyyy-MM');
+        label = Utilities.formatDate(d, TZ, 'MMM yyyy');
+      }
+      if (!byKey[key]) {
+        byKey[key] = { _key: key, label: label, spend: 0, leads: 0, bookedCalls: 0, sales: 0, revenue: 0 };
+      }
+      byKey[key].spend       += pd.spend;
+      byKey[key].leads       += pd.leads;
+      byKey[key].bookedCalls += pd.bookedCalls;
+      byKey[key].sales       += pd.sales;
+      byKey[key].revenue     += pd.revenue;
+    });
+    var arr = Object.keys(byKey).map(function(k) {
+      var b = byKey[k];
+      b.cpl       = b.leads > 0 ? b.spend / b.leads : 0;
+      b.costPerBC = b.bookedCalls > 0 ? b.spend / b.bookedCalls : 0;
+      b.cpa       = b.sales > 0 ? b.spend / b.sales : 0;
+      b.roas      = b.spend > 0 ? b.revenue / b.spend : 0;
+      return b;
+    });
+    arr.sort(function(a, b) { return b._key.localeCompare(a._key); });
+    arr.forEach(function(r) { delete r._key; });
+    return arr;
+  }
+
+  return {
+    dashboard: blocks,
+    daily:     daily,
+    weekly:    bucket('week'),
+    monthly:   bucket('month')
+  };
 }
